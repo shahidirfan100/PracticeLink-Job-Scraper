@@ -57,15 +57,56 @@ async function main() {
 
         const cleanTitle = (title) => {
             if (!title) return '';
-            // Remove common suffixes like "Job at Company in Location"
-            return title
-                .replace(/\s+Job\s+at\s+.*$/i, '')  // Remove "Job at Company in Location"
-                .replace(/\s+at\s+.*$/i, '')  // Remove "at Company in Location" 
-                .replace(/\s+in\s+.*$/i, '')  // Remove "in Location"
-                .trim();
-        };
 
-        const buildStartUrl = (spec, st, ct, jType) => {
+            // First, try to extract just the core job title before any separators
+            let cleaned = title;
+
+            // Split on common separators and take the first part
+            const separators = [' - ', ' | ', ' at ', ' in ', ' with ', ' for ', ' Job'];
+            for (const sep of separators) {
+                if (cleaned.includes(sep)) {
+                    const parts = cleaned.split(sep);
+                    if (parts[0] && parts[0].trim().length > 3 && parts[0].trim().length < 50) {
+                        cleaned = parts[0].trim();
+                        break;
+                    }
+                }
+            }
+
+            // Remove common suffixes with regex
+            cleaned = cleaned
+                .replace(/\s+Job\s*$/i, '')  // Remove trailing "Job"
+                .replace(/\s+Position\s*$/i, '')  // Remove trailing "Position"
+                .replace(/\s+Opening\s*$/i, '')  // Remove trailing "Opening"
+                .replace(/\s+Opportunity\s*$/i, '')  // Remove trailing "Opportunity"
+                .trim();
+
+            // If the title contains medical specialty patterns, extract just the specialty
+            const medicalPatterns = [
+                /(Physician|Doctor|Dr\.?)\s+(.+?)(?:\s+at|\s+in|\s+with|$)/i,
+                /(Nurse\s+Practitioner|Physician\s+Assistant|Nurse\s+Anesthetist)\s+(.+?)(?:\s+at|\s+in|$)/i,
+                /(.+?)\s+(Physician|Doctor|Specialist|Surgeon|Therapist)(?:\s+at|\s+in|$)/i
+            ];
+
+            for (const pattern of medicalPatterns) {
+                const match = title.match(pattern);
+                if (match && match[1] && match[1].length > 3 && match[1].length < 50) {
+                    // Return the most relevant part (usually the specialty or role)
+                    const extracted = match[1].includes('Physician') || match[1].includes('Doctor') || match[1].includes('Nurse') || match[1].includes('Assistant')
+                        ? match[1] + (match[2] ? ' ' + match[2] : '')
+                        : (match[2] || match[1]);
+                    if (extracted && extracted.length > 3 && extracted.length < 50) {
+                        return extracted.trim();
+                    }
+                }
+            }
+
+            // Final cleanup
+            cleaned = cleaned.replace(/\s+/g, ' ').trim();
+
+            // Ensure reasonable length
+            return cleaned.length > 100 ? cleaned.substring(0, 100).trim() : cleaned;
+        };        const buildStartUrl = (spec, st, ct, jType) => {
             const u = new URL('https://jobs.practicelink.com/jobboard/jobsearchresults');
             if (spec) u.searchParams.set('specialty', String(spec).trim());
             if (st) u.searchParams.set('state', String(st).trim());
@@ -201,9 +242,46 @@ async function main() {
                         
                         // Extract from HTML if JSON-LD not available
                         if (!data.title) {
-                            const rawTitle = $('h1, .job-title, [class*="job-title"]').first().text().trim() || 
-                                           $('title').text().trim() || 
-                                           null;
+                            // Try more specific selectors for job titles
+                            let rawTitle = null;
+
+                            // Try h1 elements first (most common for job titles)
+                            const h1Title = $('h1').first().text().trim();
+                            if (h1Title && h1Title.length > 3 && h1Title.length < 100) {
+                                rawTitle = h1Title;
+                            }
+
+                            // Try job-title specific classes
+                            if (!rawTitle) {
+                                const jobTitleEl = $('.job-title, [class*="job-title"], [class*="position-title"]').first();
+                                if (jobTitleEl.length) {
+                                    rawTitle = jobTitleEl.text().trim();
+                                }
+                            }
+
+                            // Try to extract from URL path as fallback
+                            if (!rawTitle) {
+                                const urlParts = request.url.split('/');
+                                // URL format: /jobs/12345/specialty/role/state/company
+                                if (urlParts.length >= 5) {
+                                    const specialty = urlParts[4] ? urlParts[4].replace(/-/g, ' ') : '';
+                                    const role = urlParts[5] ? urlParts[5].replace(/-/g, ' ') : '';
+                                    if (role && specialty) {
+                                        rawTitle = `${role} ${specialty}`.replace(/\b\w/g, l => l.toUpperCase());
+                                    } else if (specialty) {
+                                        rawTitle = specialty.replace(/\b\w/g, l => l.toUpperCase());
+                                    }
+                                }
+                            }
+
+                            // Try page title as last resort
+                            if (!rawTitle) {
+                                const pageTitle = $('title').text().trim();
+                                if (pageTitle) {
+                                    rawTitle = pageTitle;
+                                }
+                            }
+
                             data.title = rawTitle ? cleanTitle(rawTitle) : null;
                         }
                         if (!data.company) data.company = $('[class*="company"], .company-name, [class*="employer"], [class*="organization"]').first().text().trim() || null;
