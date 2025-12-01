@@ -21,6 +21,13 @@ async function main() {
             try { return new URL(href, base).href; } catch { return null; }
         };
 
+        const cleanText = (html) => {
+            if (!html) return '';
+            const $ = cheerioLoad(html);
+            $('script, style, noscript, iframe').remove();
+            return $.root().text().replace(/\s+/g, ' ').trim();
+        };
+
         const cleanHtml = (html) => {
             if (!html) return '';
             // Fix escaped quotes and clean up Microsoft Word styling
