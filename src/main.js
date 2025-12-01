@@ -17,6 +17,19 @@ async function main() {
         const RESULTS_WANTED = Number.isFinite(+RESULTS_WANTED_RAW) ? Math.max(1, +RESULTS_WANTED_RAW) : Number.MAX_SAFE_INTEGER;
         const MAX_PAGES = Number.isFinite(+MAX_PAGES_RAW) ? Math.max(1, +MAX_PAGES_RAW) : 999;
 
+        const STATE_ABBR = {
+            alabama: 'AL', alaska: 'AK', arizona: 'AZ', arkansas: 'AR', california: 'CA', colorado: 'CO',
+            connecticut: 'CT', delaware: 'DE', florida: 'FL', georgia: 'GA', hawaii: 'HI', idaho: 'ID',
+            illinois: 'IL', indiana: 'IN', iowa: 'IA', kansas: 'KS', kentucky: 'KY', louisiana: 'LA',
+            maine: 'ME', maryland: 'MD', massachusetts: 'MA', michigan: 'MI', minnesota: 'MN',
+            mississippi: 'MS', missouri: 'MO', montana: 'MT', nebraska: 'NE', nevada: 'NV',
+            'new hampshire': 'NH', 'new jersey': 'NJ', 'new mexico': 'NM', 'new york': 'NY',
+            'north carolina': 'NC', 'north dakota': 'ND', ohio: 'OH', oklahoma: 'OK', oregon: 'OR',
+            pennsylvania: 'PA', 'rhode island': 'RI', 'south carolina': 'SC', 'south dakota': 'SD',
+            tennessee: 'TN', texas: 'TX', utah: 'UT', vermont: 'VT', virginia: 'VA', washington: 'WA',
+            'west virginia': 'WV', wisconsin: 'WI', wyoming: 'WY', 'district of columbia': 'DC'
+        };
+
         const toAbs = (href, base = 'https://jobs.practicelink.com') => {
             try { return new URL(href, base).href; } catch { return null; }
         };
@@ -131,6 +144,73 @@ async function main() {
 
             // Ensure reasonable length
             return cleaned.length > 100 ? cleaned.substring(0, 100).trim() : cleaned;
+        };
+
+        const normalizeState = (stateRaw) => {
+            if (!stateRaw) return null;
+            const s = stateRaw.trim();
+            if (!s) return null;
+            if (s.length === 2 && /^[A-Za-z]{2}$/.test(s)) return s.toUpperCase();
+            const key = s.toLowerCase();
+            return STATE_ABBR[key] || null;
+        };
+
+        const formatLocation = (cityRaw, stateRaw) => {
+            const city = cityRaw ? cityRaw.trim() : '';
+            const stateAbbr = normalizeState(stateRaw);
+            if (city && stateAbbr) return `${city}, ${stateAbbr}`;
+            if (city) return city;
+            if (stateAbbr) return stateAbbr;
+            return null;
+        };
+
+        const extractLocation = ($, requestUrl, json) => {
+            // Prefer JSON-LD structured location
+            if (json?.jobLocation) {
+                const locations = Array.isArray(json.jobLocation) ? json.jobLocation : [json.jobLocation];
+                for (const loc of locations) {
+                    const addr = loc?.address;
+                    if (addr && (addr.addressLocality || addr.addressRegion)) {
+                        const combined = formatLocation(addr.addressLocality || '', addr.addressRegion || '');
+                        if (combined) return combined;
+                    }
+                }
+            }
+
+            // Try visible elements
+            const locSelectors = [
+                '[class*="location"]',
+                '.job-location',
+                '[class*="address"]',
+                '.location',
+                '.job-header__location'
+            ];
+            for (const selector of locSelectors) {
+                const text = $(selector).first().text().replace(/\s+/g, ' ').trim();
+                if (text) {
+                    const match = text.match(/([A-Za-z .'-]+),\s*([A-Za-z]{2})\b/);
+                    if (match) return `${match[1].trim()}, ${match[2].toUpperCase()}`;
+                    // If only state name is present, normalize it
+                    const maybeState = normalizeState(text);
+                    if (maybeState) return maybeState;
+                    // If text already looks like City, ST without comma spacing issues
+                    if (/^[A-Za-z .'-]+ [A-Za-z]{2}$/.test(text)) {
+                        const parts = text.split(/\s+/);
+                        const state = parts.pop();
+                        return `${parts.join(' ')}, ${state.toUpperCase()}`;
+                    }
+                }
+            }
+
+            // Fallback: try URL path for state slug
+            const parts = requestUrl.split('/');
+            if (parts.length > 7) {
+                const stateSlug = parts[7]?.replace(/-/g, ' ') || '';
+                const state = normalizeState(stateSlug);
+                if (state) return state;
+            }
+
+            return null;
         };
 
         const buildStartUrl = (spec, st, ct, jType) => {
@@ -312,7 +392,8 @@ async function main() {
                             data.title = rawTitle ? cleanTitle(rawTitle) : null;
                         }
                         if (!data.company) data.company = $('[class*="company"], .company-name, [class*="employer"], [class*="organization"]').first().text().trim() || null;
-                        if (!data.location) data.location = $('[class*="location"], .job-location, [class*="address"]').first().text().trim() || null;
+                        const extractedLocation = extractLocation($, request.url, json);
+                        if (extractedLocation) data.location = extractedLocation;
                         if (!data.job_type) data.job_type = $('[class*="job-type"], [class*="employment-type"], [class*="schedule"]').first().text().trim() || null;
                         if (!data.salary) data.salary = $('[class*="salary"], [class*="compensation"], [class*="pay"]').first().text().trim() || null;
                         
