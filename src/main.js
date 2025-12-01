@@ -343,6 +343,7 @@ async function main() {
                                 data.description_html = null;
                             }
                         }
+                        if (data.description_html) data.description_html = cleanHtml(data.description_html);
                         data.description_text = data.description_html ? cleanText(data.description_html) : null;
                         
                         // Extract specialty from URL or content
@@ -350,7 +351,7 @@ async function main() {
                         const specialtyFromUrl = urlParts.length > 4 ? urlParts[4].replace(/-/g, ' ') : null;
 
                         const item = {
-                            title: data.title || null,
+                            title: data.title ? cleanTitle(data.title) : null,
                             company: data.company || null,
                             specialty: specialty || specialtyFromUrl || null,
                             location: data.location || null,
