@@ -30,28 +30,45 @@ async function main() {
 
         const cleanHtml = (html) => {
             if (!html) return '';
-            // Fix escaped quotes and clean up Microsoft Word styling
-            let cleaned = html
-                .replace(/\/'/g, "'")  // Fix escaped single quotes
-                .replace(/\/"/g, '"')  // Fix escaped double quotes
-                .replace(/mso-[^;]+;?/g, '')  // Remove MSO styling
-                .replace(/font-notused:[^;]+;?/g, '')  // Remove font-notused
-                .replace(/background-notused:[^;]+;?/g, '')  // Remove background-notused
-                .replace(/color-notused:[^;]+;?/g, '')  // Remove color-notused
-                .replace(/mso-color-alt:[^;]+;?/g, '')  // Remove mso-color-alt
-                .replace(/mso-bidi-font-weight:[^;]+;?/g, '')  // Remove mso-bidi-font-weight
-                .replace(/mso-fareast-font-family:[^;]+;?/g, '')  // Remove mso-fareast-font-family
-                .replace(/mso-font-kerning:[^;]+;?/g, '')  // Remove mso-font-kerning
-                .replace(/mso-ligatures:[^;]+;?/g, '')  // Remove mso-ligatures
-                .replace(/mso-spacerun:yes\/?/g, '')  // Remove mso-spacerun
+            // Normalize quotes and decode common entities up front
+            const normalized = html
+                .replace(/\/'/g, "'")
+                .replace(/\/"/g, '"')
+                .replace(/&nbsp;/gi, ' ');
+
+            const $ = cheerioLoad(normalized);
+            $('script, style, noscript, iframe').remove();
+
+            const allowed = new Set(['p', 'br', 'ul', 'ol', 'li', 'strong', 'b', 'em', 'i', 'u', 'a']);
+
+            $('*').each((_, el) => {
+                const tag = el.tagName?.toLowerCase?.() || '';
+
+                // Strip all attributes; allow only href on anchors
+                for (const attr of Object.keys(el.attribs || {})) {
+                    if (tag === 'a' && attr === 'href') {
+                        const href = $(el).attr('href');
+                        $(el).attr('href', href ? href.trim() : '');
+                    } else {
+                        $(el).removeAttr(attr);
+                    }
+                }
+
+                // Flatten unwanted tags but keep their text/children
+                if (tag && !allowed.has(tag)) {
+                    $(el).replaceWith($(el).contents());
+                }
+            });
+
+            // Drop empty containers
+            $('p, li').each((_, el) => { if (!$(el).text().trim()) $(el).remove(); });
+
+            let cleaned = $.root().html() || '';
+            cleaned = cleaned
                 .replace(/\s+/g, ' ')  // Normalize whitespace
                 .replace(/>\s+</g, '><')  // Remove whitespace between tags
                 .trim();
-            
-            // Remove empty style attributes
-            cleaned = cleaned.replace(/\s+style=""\s*/g, '');
-            cleaned = cleaned.replace(/\s+class=""\s*/g, '');
-            
+
             return cleaned;
         };
 
@@ -59,7 +76,15 @@ async function main() {
             if (!title) return '';
 
             // First, try to extract just the core job title before any separators
-            let cleaned = title;
+            let cleaned = title.replace(/\s+/g, ' ').trim();
+
+            // Handle explicit "job at/in/for" patterns (e.g., "Urologist Job at ...")
+            const jobPattern = /(.+?)\s+job\b(?:\s+(?:at|in|for|with)[\s\S]*)?$/i;
+            const jobMatch = cleaned.match(jobPattern);
+            if (jobMatch && jobMatch[1]) {
+                const candidate = jobMatch[1].trim();
+                if (candidate.length >= 3 && candidate.length <= 80) return candidate;
+            }
 
             // Split on common separators and take the first part
             const separators = [' - ', ' | ', ' at ', ' in ', ' with ', ' for ', ' Job'];
@@ -106,7 +131,9 @@ async function main() {
 
             // Ensure reasonable length
             return cleaned.length > 100 ? cleaned.substring(0, 100).trim() : cleaned;
-        };        const buildStartUrl = (spec, st, ct, jType) => {
+        };
+
+        const buildStartUrl = (spec, st, ct, jType) => {
             const u = new URL('https://jobs.practicelink.com/jobboard/jobsearchresults');
             if (spec) u.searchParams.set('specialty', String(spec).trim());
             if (st) u.searchParams.set('state', String(st).trim());
