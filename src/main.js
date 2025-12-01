@@ -21,11 +21,41 @@ async function main() {
             try { return new URL(href, base).href; } catch { return null; }
         };
 
-        const cleanText = (html) => {
+        const cleanHtml = (html) => {
             if (!html) return '';
-            const $ = cheerioLoad(html);
-            $('script, style, noscript, iframe').remove();
-            return $.root().text().replace(/\s+/g, ' ').trim();
+            // Fix escaped quotes and clean up Microsoft Word styling
+            let cleaned = html
+                .replace(/\/'/g, "'")  // Fix escaped single quotes
+                .replace(/\/"/g, '"')  // Fix escaped double quotes
+                .replace(/mso-[^;]+;?/g, '')  // Remove MSO styling
+                .replace(/font-notused:[^;]+;?/g, '')  // Remove font-notused
+                .replace(/background-notused:[^;]+;?/g, '')  // Remove background-notused
+                .replace(/color-notused:[^;]+;?/g, '')  // Remove color-notused
+                .replace(/mso-color-alt:[^;]+;?/g, '')  // Remove mso-color-alt
+                .replace(/mso-bidi-font-weight:[^;]+;?/g, '')  // Remove mso-bidi-font-weight
+                .replace(/mso-fareast-font-family:[^;]+;?/g, '')  // Remove mso-fareast-font-family
+                .replace(/mso-font-kerning:[^;]+;?/g, '')  // Remove mso-font-kerning
+                .replace(/mso-ligatures:[^;]+;?/g, '')  // Remove mso-ligatures
+                .replace(/mso-spacerun:yes\/?/g, '')  // Remove mso-spacerun
+                .replace(/\s+/g, ' ')  // Normalize whitespace
+                .replace(/>\s+</g, '><')  // Remove whitespace between tags
+                .trim();
+            
+            // Remove empty style attributes
+            cleaned = cleaned.replace(/\s+style=""\s*/g, '');
+            cleaned = cleaned.replace(/\s+class=""\s*/g, '');
+            
+            return cleaned;
+        };
+
+        const cleanTitle = (title) => {
+            if (!title) return '';
+            // Remove common suffixes like "Job at Company in Location"
+            return title
+                .replace(/\s+Job\s+at\s+.*$/i, '')  // Remove "Job at Company in Location"
+                .replace(/\s+at\s+.*$/i, '')  // Remove "at Company in Location" 
+                .replace(/\s+in\s+.*$/i, '')  // Remove "in Location"
+                .trim();
         };
 
         const buildStartUrl = (spec, st, ct, jType) => {
@@ -76,10 +106,18 @@ async function main() {
         function findJobLinks($, base) {
             const links = new Set();
             // PracticeLink job links pattern: /jobs/[jobId]/[specialty]/[role]/[state]/[company]
+            // Also look for links containing job details
             $('a[href]').each((_, a) => {
                 const href = $(a).attr('href');
                 if (!href) return;
-                if (/\/jobs\/\d+\//i.test(href) || /jobs\.practicelink\.com\/jobs/i.test(href)) {
+                
+                // Check for job detail URLs
+                if (/\/jobs\/\d+\//i.test(href)) {
+                    const abs = toAbs(href, base);
+                    if (abs) links.add(abs);
+                }
+                // Also check for links that might contain job information
+                else if (/jobs\.practicelink\.com/i.test(href) && !/search|browse|about|contact/i.test(href)) {
                     const abs = toAbs(href, base);
                     if (abs) links.add(abs);
                 }
@@ -88,16 +126,33 @@ async function main() {
         }
 
         function findNextPage($, base, currentPageNo) {
-            // PracticeLink uses numbered pagination like: 12345Last
+            // PracticeLink uses numbered pagination
             const nextPageNo = currentPageNo + 1;
-            const nextLink = $(`a:contains("${nextPageNo}")`).first().attr('href');
-            if (nextLink) return toAbs(nextLink, base);
             
-            // Fallback to "next" button or rel="next"
-            const rel = $('a[rel="next"]').attr('href');
-            if (rel) return toAbs(rel, base);
+            // Look for pagination links
+            const paginationLinks = $('a[href*="page="], a[href*="p="], .pagination a, [class*="pagination"] a');
+            let nextUrl = null;
             
-            return null;
+            paginationLinks.each((_, link) => {
+                const href = $(link).attr('href');
+                const text = $(link).text().trim();
+                
+                // Check if this is the next page number
+                if (text === nextPageNo.toString() || href.includes(`page=${nextPageNo}`) || href.includes(`p=${nextPageNo}`)) {
+                    nextUrl = toAbs(href, base);
+                    return false; // break out of each loop
+                }
+            });
+            
+            // Fallback: look for "next" button
+            if (!nextUrl) {
+                const nextBtn = $('a[rel="next"], a:contains("Next"), a:contains("›"), a:contains(">"), .next, [class*="next"]').first();
+                if (nextBtn.length) {
+                    nextUrl = toAbs(nextBtn.attr('href'), base);
+                }
+            }
+            
+            return nextUrl;
         }
 
         const crawler = new CheerioCrawler({
@@ -138,22 +193,49 @@ async function main() {
                         const data = json || {};
                         
                         // Extract from HTML if JSON-LD not available
-                        if (!data.title) data.title = $('h1, .job-title, [class*="job-title"]').first().text().trim() || null;
-                        if (!data.company) data.company = $('[class*="company"], .company-name, [class*="employer"]').first().text().trim() || null;
-                        if (!data.location) data.location = $('[class*="location"], .job-location').first().text().trim() || null;
-                        if (!data.job_type) data.job_type = $('[class*="job-type"], [class*="employment-type"]').first().text().trim() || null;
-                        if (!data.salary) data.salary = $('[class*="salary"], [class*="compensation"]').first().text().trim() || null;
+                        if (!data.title) {
+                            const rawTitle = $('h1, .job-title, [class*="job-title"]').first().text().trim() || 
+                                           $('title').text().trim() || 
+                                           null;
+                            data.title = rawTitle ? cleanTitle(rawTitle) : null;
+                        }
+                        if (!data.company) data.company = $('[class*="company"], .company-name, [class*="employer"], [class*="organization"]').first().text().trim() || null;
+                        if (!data.location) data.location = $('[class*="location"], .job-location, [class*="address"]').first().text().trim() || null;
+                        if (!data.job_type) data.job_type = $('[class*="job-type"], [class*="employment-type"], [class*="schedule"]').first().text().trim() || null;
+                        if (!data.salary) data.salary = $('[class*="salary"], [class*="compensation"], [class*="pay"]').first().text().trim() || null;
                         
-                        // Extract description
+                        // Extract description with better selectors
                         if (!data.description_html) { 
-                            const desc = $('[class*="job-description"], .job-description, .description, [class*="job-details"]').first(); 
-                            data.description_html = desc && desc.length ? String(desc.html()).trim() : null; 
+                            // Try multiple selectors for job description
+                            const descSelectors = [
+                                '[class*="job-description"]',
+                                '.job-description',
+                                '.description',
+                                '[class*="job-details"]',
+                                '[class*="job-content"]',
+                                '[class*="position-details"]',
+                                '.content',
+                                '.main-content'
+                            ];
+                            
+                            let descElement = null;
+                            for (const selector of descSelectors) {
+                                descElement = $(selector).first();
+                                if (descElement.length && descElement.html().trim()) break;
+                            }
+                            
+                            if (descElement && descElement.length) {
+                                const rawHtml = descElement.html().trim();
+                                data.description_html = cleanHtml(rawHtml);
+                            } else {
+                                data.description_html = null;
+                            }
                         }
                         data.description_text = data.description_html ? cleanText(data.description_html) : null;
                         
                         // Extract specialty from URL or content
                         const urlParts = request.url.split('/');
-                        const specialtyFromUrl = urlParts.length > 4 ? urlParts[4] : null;
+                        const specialtyFromUrl = urlParts.length > 4 ? urlParts[4].replace(/-/g, ' ') : null;
 
                         const item = {
                             title: data.title || null,
