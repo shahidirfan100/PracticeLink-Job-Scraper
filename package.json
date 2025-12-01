@@ -1,0 +1,17 @@
+{
+  "name": "practicelink-jobs-scraper",
+  "version": "1.0.0",
+  "description": "PracticeLink Jobs Scraper - Extract physician and healthcare job listings with detailed information including specialty, location, salary, and job requirements.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.js"
+  },
+  "dependencies": {
+    "apify": "^3.4.5",
+    "crawlee": "^3.14.1",
+    "cheerio": "^1.0.0-rc.12",
+    "got-scraping": "^4.1.2",
+    "jsdom": "^27.1.0",
+    "header-generator": "^2.1.27"
+  }
+}

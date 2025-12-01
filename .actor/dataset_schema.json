@@ -1,0 +1,58 @@
+{
+  "actorSpecification": 1,
+  "fields": {},
+  "views": {
+    "overview": {
+      "title": "Overview",
+      "transformation": {
+        "fields": [
+          "title",
+          "company",
+          "specialty",
+          "location",
+          "salary",
+          "job_type",
+          "date_posted",
+          "url"
+        ]
+      },
+      "display": {
+        "component": "table",
+        "properties": {
+          "title": {
+            "label": "Job Title",
+            "format": "text"
+          },
+          "company": {
+            "label": "Healthcare Organization",
+            "format": "text"
+          },
+          "specialty": {
+            "label": "Medical Specialty",
+            "format": "text"
+          },
+          "location": {
+            "label": "Location",
+            "format": "text"
+          },
+          "salary": {
+            "label": "Compensation",
+            "format": "text"
+          },
+          "job_type": {
+            "label": "Employment Type",
+            "format": "text"
+          },
+          "date_posted": {
+            "label": "Date Posted",
+            "format": "text"
+          },
+          "url": {
+            "label": "Job URL",
+            "format": "link"
+          }
+        }
+      }
+    }
+  }
+}

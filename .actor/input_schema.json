@@ -1,0 +1,74 @@
+{
+  "title": "PracticeLink Jobs Scraper",
+  "description": "Extract physician and healthcare job listings from PracticeLink. Search by medical specialty, location, job type, or provide a custom search URL. Automatically extracts detailed job information including salary, requirements, and full descriptions.",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "startUrl": {
+      "title": "Start URL",
+      "type": "string",
+      "description": "Start scraping from a specific PracticeLink search URL. If provided, this will override specialty/state/city filters.",
+      "editor": "textfield"
+    },
+    "specialty": {
+      "title": "Medical Specialty",
+      "type": "string",
+      "description": "Medical specialty to search for (e.g., 'Family Medicine', 'Cardiology', 'Emergency Medicine', 'Anesthesiology').",
+      "editor": "textfield",
+      "prefill": "Family Medicine"
+    },
+    "state": {
+      "title": "State",
+      "type": "string",
+      "description": "U.S. state to filter jobs (e.g., 'California', 'Texas', 'New York'). Leave empty for all states.",
+      "editor": "textfield"
+    },
+    "city": {
+      "title": "City (optional)",
+      "type": "string",
+      "description": "Specific city to filter jobs. Works in combination with state filter.",
+      "editor": "textfield"
+    },
+    "jobType": {
+      "title": "Job Type (optional)",
+      "type": "string",
+      "description": "Employment type filter (e.g., 'Full-Time', 'Part-Time', 'Locum Tenens').",
+      "editor": "textfield"
+    },
+    "collectDetails": {
+      "title": "Collect job details",
+      "type": "boolean",
+      "description": "If enabled, scraper visits each job detail page to extract full descriptions, requirements, and additional information.",
+      "editor": "checkbox",
+      "default": true
+    },
+    "results_wanted": {
+      "title": "Maximum number of jobs",
+      "type": "integer",
+      "description": "Maximum number of job listings to collect. Set a reasonable limit to control scraping time and cost.",
+      "minimum": 1,
+      "default": 100,
+      "editor": "number"
+    },
+    "max_pages": {
+      "title": "Maximum number of pages",
+      "type": "integer",
+      "description": "Safety limit on the number of search result pages to scrape.",
+      "minimum": 1,
+      "editor": "number",
+      "default": 20
+    },
+    "proxyConfiguration": {
+      "title": "Proxy configuration",
+      "type": "object",
+      "description": "Proxy settings for reliable scraping. Residential proxies recommended for best results.",
+      "editor": "proxy",
+      "default": {
+        "useApifyProxy": true,
+        "apifyProxyGroups": ["RESIDENTIAL"]
+      }
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
